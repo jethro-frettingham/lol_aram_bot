@@ -19,7 +19,7 @@ QUEUE_ID_ARAM_MAYHEM = 900   # Arena / Mayhem variant (URF-ish ARAM events)
 MAYHEM_QUEUE_IDS = {450, 900, 1020, 1300}  # All fun-mode ARAM-adjacent queues
 
 REGION_ROUTING = {
-    "OCE":  ("oc1",  "sea"),
+    "OCE":  ("oc1",  "asia"),
     "NA":   ("na1",  "americas"),
     "EUW":  ("euw1", "europe"),
     "EUNE": ("eune1","europe"),
@@ -75,14 +75,21 @@ def get_puuid(game_name: str, tag_line: str, routing: str, api_key: str) -> str:
         f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
         f"{urllib.parse.quote(game_name)}/{urllib.parse.quote(tag_line)}"
     )
+    print(f"Calling: {url}")
     return riot_get(url, api_key)["puuid"]
 
-def get_recent_match_ids(puuid: str, routing: str, api_key: str, count: int = 5) -> list:
-    queue_param = "&".join(f"queue={q}" for q in MAYHEM_QUEUE_IDS)
-    url = (
-        f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/"
-        f"{puuid}/ids?{queue_param}&start=0&count={count}"
-    )
+def get_recent_match_ids(puuid: str, routing: str, api_key: str, count: int = 5, any_queue: bool = False) -> list:
+    if any_queue:
+        url = (
+            f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/"
+            f"{puuid}/ids?start=0&count={count}"
+        )
+    else:
+        queue_param = "&".join(f"queue={q}" for q in MAYHEM_QUEUE_IDS)
+        url = (
+            f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/"
+            f"{puuid}/ids?{queue_param}&start=0&count={count}"
+        )
     return riot_get(url, api_key)
 
 def get_match(match_id: str, routing: str, api_key: str) -> dict:
@@ -331,26 +338,53 @@ def handler(event, context):
         return
 
     # Resolve PUUIDs
+    # Supports two formats in TRACKED_PLAYERS:
+    #   GameName#TAG            -> resolved via Riot API (may be blocked from AWS IPs)
+    #   GameName#TAG=<puuid>    -> PUUID hardcoded, skips API lookup entirely
     puuids: dict[str, str] = {}  # puuid -> display name
     for game_name, tag_line in tracked:
-        try:
-            puuid = get_puuid(game_name, tag_line, routing, riot_key)
-            puuids[puuid] = f"{game_name}#{tag_line}"
-        except Exception as e:
-            print(f"Failed to resolve {game_name}#{tag_line}: {e}")
+        # Check if PUUID is hardcoded after '='
+        hardcoded_puuid = None
+        if "=" in tag_line:
+            tag_line, hardcoded_puuid = tag_line.split("=", 1)
+
+        display = f"{game_name}#{tag_line}"
+        if hardcoded_puuid:
+            puuids[hardcoded_puuid] = display
+            print(f"Using hardcoded PUUID for {display}")
+        else:
+            try:
+                puuid = get_puuid(game_name, tag_line, routing, riot_key)
+                puuids[puuid] = display
+            except Exception as e:
+                print(f"Failed to resolve {display}: {e}")
 
     if not puuids:
         print("No PUUIDs resolved.")
         return
 
     # Collect candidate match IDs across all tracked players
+    # ANY_QUEUE=true fetches all recent games regardless of mode (useful for debugging)
+    any_queue = os.environ.get("ANY_QUEUE", "false").lower() == "true"
     all_match_ids: set[str] = set()
     for puuid in puuids:
         try:
-            ids = get_recent_match_ids(puuid, routing, riot_key, count=3)
+            ids = get_recent_match_ids(puuid, routing, riot_key, count=5, any_queue=any_queue)
+            print(f"Recent match IDs for {puuids[puuid]}: {ids}")
             all_match_ids.update(ids)
         except Exception as e:
             print(f"Failed to fetch matches for {puuids[puuid]}: {e}")
+
+    # Log queue IDs so we can see what modes were recently played
+    for mid in list(all_match_ids)[:5]:
+        try:
+            m = get_match(mid, routing, riot_key)
+            qid = m["info"].get("queueId")
+            mode = m["info"].get("gameMode")
+            in_list = qid in MAYHEM_QUEUE_IDS
+            print(f"  Match {mid}: queueId={qid} mode={mode} - {'in watchlist' if in_list else 'skipping (not ARAM mode)'}")
+        except Exception as e:
+            print(f"  Could not inspect {mid}: {e}")
 
     new_matches = [mid for mid in all_match_ids if not is_seen(mid)]
     print(f"Found {len(new_matches)} new match(es) to process.")

@@ -127,6 +127,7 @@ resource "aws_lambda_function" "bot" {
       RIOT_KEY_PARAM        = aws_ssm_parameter.riot_api_key.name
       DISCORD_WEBHOOK_PARAM = aws_ssm_parameter.discord_webhook.name
       ANTHROPIC_KEY_PARAM   = aws_ssm_parameter.anthropic_api_key.name
+      ANY_QUEUE             = "false"   # Set to "true" temporarily to debug/catch all game modes
     }
   }
 
