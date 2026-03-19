@@ -1,0 +1,22 @@
+# ============================================================
+# terraform.tfvars.example
+# Copy to terraform.tfvars and fill in your real values.
+# NEVER commit terraform.tfvars to git – it contains secrets!
+# ============================================================
+
+aws_region            = "ap-southeast-2"   # Sydney – closest to OCE
+lol_region            = "OCE"
+poll_interval_minutes = 10
+
+# Comma-separated Riot IDs to watch (GameName#TAG format)
+tracked_players = "YourName#OCE1,FriendOne#OCE1,FriendTwo#OCE1"
+
+# Get from: https://developer.riotgames.com/
+# NOTE: Development keys expire every 24 hours! Apply for a personal/production key.
+riot_api_key = "RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Create in Discord: Server Settings → Integrations → Webhooks → New Webhook
+discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXXXX/YYYYYYYYYYYYYYY"
+
+# Get from: https://console.anthropic.com/settings/keys
+anthropic_api_key = "sk-ant-api03-..."
